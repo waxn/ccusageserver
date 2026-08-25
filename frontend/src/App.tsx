@@ -4,6 +4,7 @@ import { useAuth } from "./lib/auth";
 import Dashboard from "./pages/Dashboard";
 import Devices from "./pages/Devices";
 import Settings from "./pages/Settings";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 
 function LoadingScreen() {
@@ -22,8 +23,9 @@ export default function App() {
   if (!user) {
     return (
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     );
   }

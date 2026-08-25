@@ -20,6 +20,9 @@ class UsageRow:
     cache_creation_tokens: int
     cache_read_tokens: int
     cost_notional_usd: float
+    # Set when ccusage attributes the row to a specific agent/tool
+    # (``daily --json --by-agent``). None means "use the request default".
+    source_tool: str | None = None
 
 
 def _to_int(value) -> int:
@@ -47,7 +50,7 @@ def _first(d: dict, *keys, default=None):
     return default
 
 
-def _row_from_breakdown(date: str, model: str, b: dict) -> UsageRow:
+def _row_from_breakdown(date: str, model: str, b: dict, source_tool: str | None = None) -> UsageRow:
     return UsageRow(
         date=date,
         model_name=model,
@@ -60,6 +63,7 @@ def _row_from_breakdown(date: str, model: str, b: dict) -> UsageRow:
             _first(b, "cacheReadTokens", "cache_read_tokens", "cacheReadInputTokens")
         ),
         cost_notional_usd=_to_float(_first(b, "cost", "totalCost", "costUSD", default=0.0)),
+        source_tool=source_tool,
     )
 
 
@@ -120,30 +124,44 @@ def parse_ccusage_daily(payload: dict) -> list[UsageRow]:
             continue
         date = str(date)[:10]
 
-        breakdowns = _first(entry, "modelBreakdowns", "model_breakdowns", default=None)
-        if isinstance(breakdowns, list) and breakdowns:
-            for b in breakdowns:
-                if not isinstance(b, dict):
+        # ccusage >=20 with --by-agent nests a per-tool breakdown under "agents".
+        # Prefer it so usage is attributed to the tool that produced it; this
+        # replaces (not supplements) the aggregate modelBreakdowns to avoid
+        # double-counting.
+        agents = _first(entry, "agents", "agentBreakdowns", default=None)
+        if isinstance(agents, list) and agents:
+            for a in agents:
+                if not isinstance(a, dict):
                     continue
-                model = str(_first(b, "modelName", "model", "model_name", default="unknown"))
-                row = _row_from_breakdown(date, model, b)
-                _merge(acc, row)
+                tool = str(_first(a, "agent", "name", default="")).strip().lower() or None
+                _emit_breakdowns(acc, date, a, tool)
         else:
-            # No per-model breakdown: emit a single day-level row.
-            models = _first(entry, "modelsUsed", "models_used", default=None)
-            model = "unknown"
-            if isinstance(models, list) and len(models) == 1:
-                model = str(models[0])
-            elif isinstance(models, list) and models:
-                model = "mixed"
-            row = _row_from_breakdown(date, model, entry)
-            _merge(acc, row)
+            _emit_breakdowns(acc, date, entry, None)
 
     return list(acc.values())
 
 
-def _merge(acc: dict[tuple[str, str], UsageRow], row: UsageRow) -> None:
-    key = (row.date, row.model_name)
+def _emit_breakdowns(acc: dict, date: str, container: dict, source_tool: str | None) -> None:
+    """Emit rows from a container's modelBreakdowns, or a single day-level row."""
+    breakdowns = _first(container, "modelBreakdowns", "model_breakdowns", default=None)
+    if isinstance(breakdowns, list) and breakdowns:
+        for b in breakdowns:
+            if not isinstance(b, dict):
+                continue
+            model = str(_first(b, "modelName", "model", "model_name", default="unknown"))
+            _merge(acc, _row_from_breakdown(date, model, b, source_tool))
+    else:
+        models = _first(container, "modelsUsed", "models_used", default=None)
+        model = "unknown"
+        if isinstance(models, list) and len(models) == 1:
+            model = str(models[0])
+        elif isinstance(models, list) and models:
+            model = "mixed"
+        _merge(acc, _row_from_breakdown(date, model, container, source_tool))
+
+
+def _merge(acc: dict[tuple, UsageRow], row: UsageRow) -> None:
+    key = (row.source_tool, row.date, row.model_name)
     existing = acc.get(key)
     if existing is None:
         acc[key] = row

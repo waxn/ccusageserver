@@ -2,6 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---- Landing page: editorial / archival ledger ------------------------- */
+@layer utilities {
+  /* Horizontal ledger ruling with a coral margin rule, like accounting paper. */
+  .ledger-paper {
+    background-image:
+      linear-gradient(to right, transparent 0, transparent 62px, rgba(193, 95, 60, 0.28) 62px, rgba(193, 95, 60, 0.28) 63px, transparent 64px),
+      repeating-linear-gradient(to bottom, transparent 0, transparent 39px, rgba(43, 40, 34, 0.06) 39px, rgba(43, 40, 34, 0.06) 40px);
+  }
+  .dark .ledger-paper {
+    background-image:
+      linear-gradient(to right, transparent 0, transparent 62px, rgba(193, 95, 60, 0.35) 62px, rgba(193, 95, 60, 0.35) 63px, transparent 64px),
+      repeating-linear-gradient(to bottom, transparent 0, transparent 39px, rgba(255, 255, 255, 0.05) 39px, rgba(255, 255, 255, 0.05) 40px);
+  }
+  /* Subtle grain overlay for paper texture. */
+  .grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+  }
+  .double-rule {
+    border-bottom: 3px double currentColor;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 @layer base {
   html,
   body,

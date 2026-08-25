@@ -127,9 +127,12 @@ from **Devices** if a machine is lost or wiped.
 
 On each run (`ledger-agent sync`) it:
 
-- runs `npx -y ccusage@<pinned> daily --json` with `TZ` and `CCUSAGE_TIMEZONE`
-  pinned (so every device buckets days on the same clock) and POSTs the JSON to
-  `/api/usage/report`. ccusage reports the **entire local history** it can find
+- runs `npx -y ccusage@<pinned> daily --json --by-agent` with `TZ` and
+  `CCUSAGE_TIMEZONE` pinned (so every device buckets days on the same clock) and
+  POSTs the JSON to `/api/usage/report`. `--by-agent` makes ccusage break usage
+  out per tool (Claude / Codex / OpenCode …); the server splits those into
+  separate `source_tool` rows so the dashboard's per-tool breakdown is accurate.
+  ccusage reports the **entire local history** it can find
   (there's no date limit), so the first sync backfills all usage still on disk;
   the server upserts idempotently on `(device, tool, model, date)`, so
   re-sending overlapping ranges on every run never duplicates. (The only history

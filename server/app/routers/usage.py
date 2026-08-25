@@ -50,8 +50,8 @@ def ingest_report(
     device: Device = Depends(get_current_device),
     db: Session = Depends(get_db),
 ) -> ReportIngestResponse:
-    source_tool = source_tool.lower().strip()
-    if not _SAFE_TOOL.match(source_tool):
+    default_tool = source_tool.lower().strip()
+    if not _SAFE_TOOL.match(default_tool):
         raise HTTPException(status_code=422, detail="Invalid source_tool")
 
     try:
@@ -62,10 +62,16 @@ def ingest_report(
     inserted = 0
     updated = 0
     for row in rows:
+        # ccusage --by-agent attributes each row to its tool; fall back to the
+        # request default when it doesn't (older ccusage / no breakdown).
+        tool = (row.source_tool or default_tool).lower().strip()
+        if not _SAFE_TOOL.match(tool):
+            tool = default_tool
+
         existing = db.execute(
             select(UsageReport).where(
                 UsageReport.device_id == device.id,
-                UsageReport.source_tool == source_tool,
+                UsageReport.source_tool == tool,
                 UsageReport.model_name == row.model_name,
                 UsageReport.date == row.date,
             )
@@ -75,7 +81,7 @@ def ingest_report(
             db.add(
                 UsageReport(
                     device_id=device.id,
-                    source_tool=source_tool,
+                    source_tool=tool,
                     model_name=row.model_name,
                     date=row.date,
                     input_tokens=row.input_tokens,

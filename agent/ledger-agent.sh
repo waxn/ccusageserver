@@ -76,7 +76,10 @@ run_ccusage() {
   # $1 = tool. Only 'claude' is served by ccusage today; others are best-effort.
   case "$1" in
     claude)
-      npx -y "ccusage@${CCUSAGE_VERSION}" daily --json 2>/dev/null ;;
+      # --by-agent adds a per-tool breakdown (ccusage >=20) so the server can
+      # split usage by Claude / Codex / OpenCode / etc. Older ccusage ignores
+      # the flag's effect and the server falls back to the default tool label.
+      npx -y "ccusage@${CCUSAGE_VERSION}" daily --json --by-agent 2>/dev/null ;;
     opencode)
       # Placeholder for a future opencode usage command. Skip cleanly for now.
       warn "opencode usage parsing is not yet wired up; skipping parsed report."

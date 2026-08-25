@@ -16,6 +16,33 @@ export default {
           "Arial",
           "sans-serif",
         ],
+        // Landing-page type system (editorial / archival ledger).
+        display: ["Fraunces", "ui-serif", "Georgia", "Cambria", "serif"],
+        grotesk: ['"Hanken Grotesk"', "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ['"Spline Sans Mono"', "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      keyframes: {
+        "fade-up": {
+          "0%": { opacity: "0", transform: "translateY(14px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        "draw-rule": {
+          "0%": { transform: "scaleX(0)" },
+          "100%": { transform: "scaleX(1)" },
+        },
+        "count-blink": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.35" },
+        },
+      },
+      animation: {
+        "fade-up": "fade-up 0.8s cubic-bezier(0.2,0.7,0.2,1) both",
+        "fade-in": "fade-in 1.1s ease both",
+        "draw-rule": "draw-rule 0.9s cubic-bezier(0.2,0.7,0.2,1) both",
       },
       colors: {
         // Warm, paper-like neutrals (light) and soft charcoal (dark).

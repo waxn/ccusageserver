@@ -142,6 +142,40 @@ def test_per_agent_only_when_no_aggregate():
     assert rows[0].input_tokens == 150
 
 
+def test_by_agent_splits_source_tool():
+    """ccusage --by-agent nests per-tool rows under 'agents'; split by tool."""
+    payload = {
+        "daily": [
+            {
+                "agent": "all",
+                "period": "2026-08-13",
+                "modelBreakdowns": [{"modelName": "combined", "inputTokens": 999}],
+                "agents": [
+                    {
+                        "agent": "claude",
+                        "modelBreakdowns": [
+                            {"modelName": "claude-sonnet-5", "inputTokens": 1176, "cost": 8.76}
+                        ],
+                    },
+                    {
+                        "agent": "opencode",
+                        "modelBreakdowns": [
+                            {"modelName": "deepseek", "inputTokens": 196288, "cost": 0.67}
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+    rows = parse_ccusage_daily(payload)
+    # Two rows, one per tool — and NOT the aggregate "combined" row.
+    assert len(rows) == 2
+    tools = {r.source_tool: r for r in rows}
+    assert tools["claude"].input_tokens == 1176
+    assert tools["opencode"].model_name == "deepseek"
+    assert "combined" not in {r.model_name for r in rows}
+
+
 def test_rejects_non_object():
     import pytest
 
