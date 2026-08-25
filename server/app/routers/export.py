@@ -65,9 +65,20 @@ def export_all_data(
         account_data["crypto_verifier_ct"] = account.crypto_verifier_ct
 
     # --- Devices -------------------------------------------------------------
+    # Use explicit column selection with both tables to avoid LEFT JOIN ambiguity.
+    from sqlalchemy import outerjoin
     devices_query = (
-        select(Device)
-        .join(Device.usage_reports, isouter=True)  # include devices with no reports
+        select(
+            Device.id,
+            Device.hostname,
+            Device.label,
+            Device.os,
+            Device.last_seen_at,
+            Device.revoked_at,
+            Device.created_at,
+            Device.enrollment_token_used,
+        )
+        .outerjoin(Device.usage_reports)  # include devices with no reports
         .where(Device.user_id == account.id)
         .order_by(Device.created_at.desc())
     )
@@ -76,7 +87,7 @@ def export_all_data(
     devices: list[dict[str, Any]] = []
     for d in devices_rows:
         device_info: dict[str, Any] = {
-            "id": d.id,
+            "id": int(d.id),
             "hostname": d.hostname,
             "label": d.label,
             "display_name": (d.label or d.hostname),
