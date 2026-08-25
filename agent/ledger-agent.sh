@@ -357,7 +357,37 @@ cmd_update() {
     log "Re-pinned ccusage version: $CCUSAGE_VERSION -> $srvver"
   fi
 
-  log "Done. Run 'ledger-agent sync' to resync all usage now, or wait for the timer."
+  # Prompt to set encryption password if not yet configured, to unblock uploads.
+  storedpw="$(conf encryption_password)"
+  if [ -z "$storedpw" ]; then
+    read_password() {
+      if [ -n "${1:-}" ]; then printf '%s' "$1"; return; fi
+      printf 'Enter encryption password (same as dashboard): ' >&2
+      stty -echo 2>/dev/null || true
+      IFS= read -r _pw || true
+      stty echo 2>/dev/null || true
+      printf '\n' >&2
+      printf '%s' "$_pw"
+    }
+
+    newpw="$(read_password)"
+    [ -n "$newpw" ] || die "No encryption password provided. Usage is end-to-end encrypted, so you must set one."
+
+    tmp="$CONFIG_FILE.tmp.$$"
+    grep -v '^[[:space:]]*encryption_password[[:space:]]*=' "$CONFIG_FILE" > "$tmp" 2>/dev/null || : > "$tmp"
+    printf 'encryption_password = "%s"\n' "$newpw" >> "$tmp"
+    mv "$tmp" "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE" 2>/dev/null || true
+    log "Saved encryption password to $CONFIG_FILE"
+
+    # Refresh the in-memory value for the immediate sync below.
+    ENCRYPTION_PASSWORD="$newpw"
+
+    log "Syncing now..."
+    cmd_sync || true
+  else
+    log "Encryption password is already set — no action needed."
+  fi
 }
 
 usage() {

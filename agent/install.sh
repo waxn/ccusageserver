@@ -135,10 +135,27 @@ chmod 600 "$CONFIG_FILE"
 log "Wrote config to $CONFIG_FILE"
 
 if [ -z "$ENCRYPTION_PASSWORD" ]; then
-  warn "No encryption password set. Usage is end-to-end encrypted, so the agent"
-  warn "can't upload until you set it. Run:"
-  warn "  ledger-agent set-password"
-  warn "(using the same password you set in the dashboard)."
+  # Prompt to set the encryption password if not already provided
+  read_password() {
+    if [ -n "${1:-}" ]; then printf '%s' "$1"; return; fi
+    printf 'Enter encryption password (same as dashboard): ' >&2
+    stty -echo 2>/dev/null || true
+    IFS= read -r _pw || true
+    stty echo 2>/dev/null || true
+    printf '\n' >&2
+    printf '%s' "$_pw"
+  }
+
+  newpw="$(read_password)"
+  [ -n "$newpw" ] || die "No encryption password provided. Usage is end-to-end encrypted, so you must set one."
+
+  tmp="$CONFIG_FILE.tmp.$$"
+  grep -v '^[[:space:]]*encryption_password[[:space:]]*=' "$CONFIG_FILE" > "$tmp" 2>/dev/null || : > "$tmp"
+  printf 'encryption_password = "%s"\n' "$newpw" >> "$tmp"
+  mv "$tmp" "$CONFIG_FILE"
+  chmod 600 "$CONFIG_FILE"
+  log "Saved encryption password to $CONFIG_FILE"
+
 fi
 
 # --- Install the agent script ----------------------------------------------
