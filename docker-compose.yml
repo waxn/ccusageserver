@@ -1,0 +1,34 @@
+# Ledger — self-hosted coding-agent usage tracker.
+# Single container: FastAPI API + compiled frontend + agent script hosting.
+# Sits behind an existing reverse proxy (Pangolin/Newt) that terminates TLS.
+
+services:
+  ledger:
+    build:
+      # Build context is the repo root so the image can bundle both the
+      # server code and the agent scripts it serves.
+      context: .
+      dockerfile: server/Dockerfile
+    image: ledger:latest
+    container_name: ledger
+    restart: unless-stopped
+    ports:
+      # Expose plain HTTP internally; the reverse proxy handles TLS.
+      - "${LEDGER_PORT:-8787}:8000"
+    environment:
+      # REQUIRED: set a long random value in your .env file. Rotating this
+      # invalidates all existing dashboard sessions (not device API keys).
+      LEDGER_SECRET_KEY: ${LEDGER_SECRET_KEY:?Set LEDGER_SECRET_KEY in .env}
+      LEDGER_DATABASE_URL: sqlite:////data/ledger.db
+      LEDGER_ARCHIVE_DIR: /data/archives
+      # Public URL the agents reach this server at (used to render install.sh).
+      LEDGER_PUBLIC_BASE_URL: ${LEDGER_PUBLIC_BASE_URL:-}
+      # Pinned ccusage version every enrolled machine will use.
+      LEDGER_CCUSAGE_VERSION: ${LEDGER_CCUSAGE_VERSION:-17.1.3}
+      # Flag a device as stale after this many hours without a check-in.
+      LEDGER_DEVICE_STALE_AFTER_HOURS: ${LEDGER_DEVICE_STALE_AFTER_HOURS:-24}
+    volumes:
+      - ledger-data:/data
+
+volumes:
+  ledger-data:

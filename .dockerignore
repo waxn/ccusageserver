@@ -1,0 +1,17 @@
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/node_modules/
+frontend/dist/
+server/static/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+data/
+.git/
+.gitignore
+.env
+*.local
+README.md
