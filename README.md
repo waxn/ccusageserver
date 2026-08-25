@@ -123,6 +123,14 @@ Passwords are hashed with argon2; sessions are standard HS256 JWTs.
      every ~45 minutes,
    - run an initial sync immediately.
 
+If you didn't pass `LEDGER_ENCRYPTION_PASSWORD` at install time, set it
+afterward with a command (prompts, hidden input, verified against the
+dashboard, then syncs):
+
+```sh
+ledger-agent set-password
+```
+
 Enrollment tokens are single-use and expire (default 7 days). The long-lived
 **device API key** never appears in the dashboard and can be revoked per-device
 from **Devices** if a machine is lost or wiped.
@@ -178,9 +186,10 @@ scheduled run picks it up. The installed command is `ledger-agent`
 (in `~/.local/bin`):
 
 ```sh
-ledger-agent sync       # run a sync now (backfills full local history)
-ledger-agent update     # pull the latest agent from the server + re-pin ccusage
-ledger-agent version    # show agent version and config path
+ledger-agent sync          # run a sync now (backfills full local history)
+ledger-agent set-password  # set/change the encryption password (prompts + verifies)
+ledger-agent update        # pull the latest agent from the server + re-pin ccusage
+ledger-agent version       # show agent version and config path
 # inspect / manage the timer:
 systemctl --user status ledger-agent.timer
 journalctl --user -u ledger-agent.service -e

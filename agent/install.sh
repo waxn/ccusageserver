@@ -136,9 +136,9 @@ log "Wrote config to $CONFIG_FILE"
 
 if [ -z "$ENCRYPTION_PASSWORD" ]; then
   warn "No encryption password set. Usage is end-to-end encrypted, so the agent"
-  warn "can't upload until you add it. Set your dashboard encryption password in:"
-  warn "  $CONFIG_FILE   (encryption_password = \"…\")"
-  warn "or reinstall with: LEDGER_ENCRYPTION_PASSWORD=… curl … | sh -s -- <token>"
+  warn "can't upload until you set it. Run:"
+  warn "  ledger-agent set-password"
+  warn "(using the same password you set in the dashboard)."
 fi
 
 # --- Install the agent script ----------------------------------------------

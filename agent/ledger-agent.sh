@@ -139,6 +139,20 @@ process.stdin.on("end", () => {
 });
 '
 
+# Verify-only: exit 0 if the password derives the account key, 3 otherwise.
+NODE_VERIFY='
+const crypto = require("node:crypto");
+const key = crypto.pbkdf2Sync(process.env.LP || "", Buffer.from(process.env.LSALT || "", "base64"),
+  parseInt(process.env.LITER || "200000", 10), 32, "sha256");
+try {
+  const vn = Buffer.from(process.env.LVN || "", "base64");
+  const vc = Buffer.from(process.env.LVC || "", "base64");
+  const body = vc.subarray(0, vc.length - 16), tag = vc.subarray(vc.length - 16);
+  const d = crypto.createDecipheriv("aes-256-gcm", key, vn); d.setAuthTag(tag);
+  if (Buffer.concat([d.update(body), d.final()]).toString("utf8") !== "ledger-verify") throw 0;
+} catch (e) { process.exit(3); }
+'
+
 # Fetch KDF params for this account (device-authenticated). Populates globals.
 CRYPTO_CONFIGURED=""; CRYPTO_SALT=""; CRYPTO_ITER=""; CRYPTO_VN=""; CRYPTO_VC=""
 fetch_crypto_params() {
@@ -246,6 +260,62 @@ cmd_sync() {
   return "$rc"
 }
 
+# --- Set encryption password -----------------------------------------------
+# Read a password without echoing (or from a pipe / arg).
+read_password() {
+  if [ -n "${1:-}" ]; then printf '%s' "$1"; return; fi
+  if [ ! -t 0 ]; then IFS= read -r _pw || true; printf '%s' "$_pw"; return; fi
+  printf 'Encryption password (matches the dashboard): ' >&2
+  stty -echo 2>/dev/null || true
+  IFS= read -r _pw || true
+  stty echo 2>/dev/null || true
+  printf '\n' >&2
+  printf '%s' "$_pw"
+}
+
+# Write encryption_password into the config safely (no sed substitution, so any
+# character except a double-quote is fine).
+write_password() {
+  val="$1"
+  case "$val" in *\"*) die "Password contains a double-quote (\"), which the config can't store. Use one without it." ;; esac
+  tmp="$CONFIG_FILE.tmp.$$"
+  grep -v '^[[:space:]]*encryption_password[[:space:]]*=' "$CONFIG_FILE" > "$tmp" 2>/dev/null || : > "$tmp"
+  printf 'encryption_password = "%s"\n' "$val" >> "$tmp"
+  mv "$tmp" "$CONFIG_FILE"
+  chmod 600 "$CONFIG_FILE" 2>/dev/null || true
+}
+
+cmd_set_password() {
+  newpw="$(read_password "${1:-}")"
+  [ -n "$newpw" ] || die "No password entered."
+
+  # If the server already has encryption configured, verify before saving so a
+  # typo can't lock in a wrong password.
+  if fetch_crypto_params; then
+    case "$CRYPTO_CONFIGURED" in
+      true|True|1)
+        if LP="$newpw" LSALT="$CRYPTO_SALT" LITER="$CRYPTO_ITER" LVN="$CRYPTO_VN" LVC="$CRYPTO_VC" \
+            node -e "$NODE_VERIFY"; then
+          log "Verified against the dashboard."
+        else
+          die "That password does not match the dashboard's encryption password. Nothing changed."
+        fi ;;
+      *)
+        warn "Encryption isn't set up in the dashboard yet — saving locally. Set the SAME password there." ;;
+    esac
+  else
+    warn "Couldn't reach the server to verify; saving locally anyway."
+  fi
+
+  write_password "$newpw"
+  # Refresh the in-memory value (config was read once at startup) so the
+  # immediate sync below uses the new password.
+  ENCRYPTION_PASSWORD="$newpw"
+  log "Saved encryption password to $CONFIG_FILE"
+  log "Syncing now..."
+  cmd_sync || true
+}
+
 # --- Self-update -----------------------------------------------------------
 # Resolve the absolute path of the installed agent so `update` can replace it.
 resolve_self() {
@@ -297,16 +367,18 @@ ledger-agent v$AGENT_VERSION
 Usage: ledger-agent <command>
 
 Commands:
-  sync       Run ccusage and upload parsed usage + a periodic raw archive (default).
-  update     Re-download the latest agent from the server and re-pin ccusage.
-  version    Print the agent version and config path.
+  sync            Run ccusage and upload encrypted usage (default).
+  set-password    Set the end-to-end encryption password (prompts; verifies).
+  update          Re-download the latest agent from the server and re-pin ccusage.
+  version         Print the agent version and config path.
 EOF
 }
 
 case "${1:-sync}" in
-  sync)          cmd_sync ;;
-  update)        cmd_update ;;
-  version)       echo "ledger-agent v$AGENT_VERSION (config: $CONFIG_FILE)" ;;
-  -h|--help|help) usage ;;
-  *)             warn "Unknown command: $1"; usage; exit 2 ;;
+  sync)                  cmd_sync ;;
+  set-password|password) cmd_set_password "${2:-}" ;;
+  update)                cmd_update ;;
+  version)               echo "ledger-agent v$AGENT_VERSION (config: $CONFIG_FILE)" ;;
+  -h|--help|help)        usage ;;
+  *)                     warn "Unknown command: $1"; usage; exit 2 ;;
 esac
