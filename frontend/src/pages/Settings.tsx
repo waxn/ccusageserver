@@ -1,7 +1,73 @@
 import { useEffect, useState } from "react";
 import { EnrollForm } from "../components/EnrollDevice";
 import { api, type EnrollmentToken, type Meta } from "../lib/api";
-import { formatDate } from "../lib/format";
+import { useCrypto } from "../lib/cryptoContext";
+import { collectRows, downloadFile, toCSV } from "../lib/exportData";
+import { formatDate, todayISO } from "../lib/format";
+
+function ExportCard() {
+  const { key } = useCrypto();
+  const [busy, setBusy] = useState<null | "csv" | "json">(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function run(format: "csv" | "json") {
+    if (!key) return;
+    setBusy(format);
+    setError(null);
+    setNote(null);
+    try {
+      const rows = await collectRows(key);
+      if (rows.length === 0) {
+        setNote("No usage to export yet.");
+        return;
+      }
+      const stamp = todayISO();
+      if (format === "csv") {
+        downloadFile(`ledger-usage-${stamp}.csv`, toCSV(rows), "text/csv;charset=utf-8");
+      } else {
+        downloadFile(
+          `ledger-usage-${stamp}.json`,
+          JSON.stringify({ exported_at: new Date().toISOString(), rows }, null, 2),
+          "application/json",
+        );
+      }
+      setNote(`Exported ${rows.length.toLocaleString()} rows.`);
+    } catch (e: any) {
+      setError(e.message || "Export failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="card p-6">
+      <h2 className="text-base font-semibold">Export your data</h2>
+      <p className="mt-1 text-sm text-ink-muted dark:text-paper/50">
+        Download your full usage history (all devices, tools, and models). Decrypted in your
+        browser — the file leaves with your data in the clear, so keep it somewhere safe.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button className="btn-primary" onClick={() => run("csv")} disabled={busy !== null || !key}>
+          {busy === "csv" ? "Preparing…" : "Download CSV"}
+        </button>
+        <button
+          className="btn-ghost border border-black/10 dark:border-white/10"
+          onClick={() => run("json")}
+          disabled={busy !== null || !key}
+        >
+          {busy === "json" ? "Preparing…" : "Download JSON"}
+        </button>
+        {note && <span className="text-sm text-ink-muted dark:text-paper/50">{note}</span>}
+      </div>
+      {error && (
+        <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function tokenStatus(t: EnrollmentToken): { label: string; cls: string } {
   if (t.revoked_at) return { label: "Revoked", cls: "text-gray-500" };
@@ -118,6 +184,8 @@ export default function Settings() {
           </table>
         )}
       </div>
+
+      <ExportCard />
 
       {meta && (
         <div className="card p-5 text-sm">
