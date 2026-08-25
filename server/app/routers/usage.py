@@ -238,8 +238,10 @@ def summary(
         for r in trend_rows
     ]
 
+    # Group devices by their display name (label if set, else hostname).
+    device_name = cast(func.coalesce(func.nullif(Device.label, ""), Device.hostname), String)
     by_model = _grouped(db, conds, cols, UsageReport.model_name)
-    by_device = _grouped(db, conds, cols, cast(Device.hostname, String))
+    by_device = _grouped(db, conds, cols, device_name)
     by_source_tool = _grouped(db, conds, cols, UsageReport.source_tool)
 
     return SummaryResponse(

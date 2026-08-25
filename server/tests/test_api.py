@@ -153,6 +153,24 @@ def test_device_label_from_token_and_rename_and_delete(client, auth_client):
     assert dev["id"] not in ids
 
 
+def test_summary_by_device_uses_label(client, auth_client):
+    resp = auth_client.post("/api/enrollment/create", json={"label": "thinkpad"})
+    token = resp.json()["token"]
+    api_key = client.post(
+        "/api/devices/enroll",
+        json={"enrollment_token": token, "hostname": "shared-hostname", "os": "Linux"},
+    ).json()["api_key"]
+    client.post(
+        "/api/usage/report",
+        json=CCUSAGE_PAYLOAD,
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    summary = auth_client.get("/api/usage/summary").json()
+    keys = [b["key"] for b in summary["by_device"]]
+    assert "thinkpad" in keys
+    assert "shared-hostname" not in keys
+
+
 def test_display_name_falls_back_to_hostname(client, auth_client):
     resp = auth_client.post("/api/enrollment/create", json={})  # no label
     token = resp.json()["token"]
