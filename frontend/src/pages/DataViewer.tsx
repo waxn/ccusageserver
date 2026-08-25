@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import type { CryptoParams } from "../lib/api";
 import { getToken } from "../lib/api";
 import { aesDecrypt } from "../lib/crypto";
 import { useAuth } from "../lib/auth";
@@ -32,7 +31,6 @@ export default function DataViewer() {
   const [data, setData] = useState<RawData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [email, setEmail] = useState(user?.email ?? "");
 
   useEffect(() => {
     if (!user || authLoading) return;
@@ -107,7 +105,7 @@ export default function DataViewer() {
         <div>
           <h1 className="text-2xl font-semibold">Raw Data Viewer</h1>
           <p className="text-sm text-ink-muted dark:text-paper/50">
-            All data belonging to {email}. Nothing from other users is ever returned.
+            All data belonging to {user?.email}. Nothing from other users is ever returned.
           </p>
         </div>
         <button

@@ -5,6 +5,7 @@ import { CryptoProvider } from "./lib/cryptoContext";
 import Dashboard from "./pages/Dashboard";
 import Devices from "./pages/Devices";
 import Settings from "./pages/Settings";
+import DataViewer from "./pages/DataViewer";
 import { EncryptionGate } from "./pages/Encryption";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
@@ -39,6 +40,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/devices" element={<Devices />} />
+            <Route path="/data" element={<DataViewer />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
