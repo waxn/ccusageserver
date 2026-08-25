@@ -93,6 +93,55 @@ def test_merges_duplicate_model_dates():
     assert rows[0].input_tokens == 3
 
 
+def test_parses_ccusage_20_period_key():
+    """ccusage >= 20 renamed the day key from 'date' to 'period'."""
+    payload = {
+        "daily": [
+            {
+                "agent": "all",
+                "period": "2026-08-14",
+                "inputTokens": 1918,
+                "outputTokens": 375362,
+                "modelBreakdowns": [
+                    {"modelName": "claude-sonnet-5", "inputTokens": 1918, "outputTokens": 375362, "cost": 26.3},
+                ],
+            }
+        ]
+    }
+    rows = parse_ccusage_daily(payload)
+    assert len(rows) == 1
+    assert rows[0].date == "2026-08-14"
+    assert rows[0].model_name == "claude-sonnet-5"
+    assert rows[0].input_tokens == 1918
+
+
+def test_multi_agent_uses_aggregate_row_only():
+    """When per-agent rows and an 'all' aggregate coexist, don't double-count."""
+    payload = {
+        "daily": [
+            {"agent": "claude", "period": "2026-08-14", "modelBreakdowns": [{"modelName": "m", "inputTokens": 100}]},
+            {"agent": "codex", "period": "2026-08-14", "modelBreakdowns": [{"modelName": "m", "inputTokens": 50}]},
+            {"agent": "all", "period": "2026-08-14", "modelBreakdowns": [{"modelName": "m", "inputTokens": 150}]},
+        ]
+    }
+    rows = parse_ccusage_daily(payload)
+    assert len(rows) == 1
+    assert rows[0].input_tokens == 150  # the aggregate, not 100+50+150
+
+
+def test_per_agent_only_when_no_aggregate():
+    """If there's no 'all' row, sum the per-agent rows."""
+    payload = {
+        "daily": [
+            {"agent": "claude", "period": "2026-08-14", "modelBreakdowns": [{"modelName": "m", "inputTokens": 100}]},
+            {"agent": "codex", "period": "2026-08-14", "modelBreakdowns": [{"modelName": "m", "inputTokens": 50}]},
+        ]
+    }
+    rows = parse_ccusage_daily(payload)
+    assert len(rows) == 1
+    assert rows[0].input_tokens == 150
+
+
 def test_rejects_non_object():
     import pytest
 

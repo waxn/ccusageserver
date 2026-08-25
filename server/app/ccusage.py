@@ -97,13 +97,25 @@ def parse_ccusage_daily(payload: dict) -> list[UsageRow]:
     if not isinstance(daily, list):
         raise ValueError("ccusage payload 'daily' must be a list")
 
+    entries = [e for e in daily if isinstance(e, dict)]
+
+    # ccusage >= 20 emits a multi-agent breakdown: potentially one row per
+    # (day, agent) plus an aggregate row tagged agent == "all". When aggregate
+    # rows are present, use only those so we don't double-count; otherwise use
+    # every row. Older ccusage (< 20) has no "agent" field, so this is a no-op.
+    def _agent(e: dict) -> str:
+        return str(e.get("agent", "")).strip().lower()
+
+    has_aggregate = any(_agent(e) in ("all", "combined", "total") for e in entries)
+
     # Accumulate, summing duplicate (date, model) pairs defensively.
     acc: dict[tuple[str, str], UsageRow] = {}
 
-    for entry in daily:
-        if not isinstance(entry, dict):
+    for entry in entries:
+        if has_aggregate and _agent(entry) not in ("all", "combined", "total"):
             continue
-        date = _first(entry, "date", "day")
+        # ccusage <20 uses "date"; ccusage >=20 renamed it to "period".
+        date = _first(entry, "date", "day", "period")
         if not date:
             continue
         date = str(date)[:10]

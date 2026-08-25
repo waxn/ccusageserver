@@ -6,6 +6,8 @@
 # parsing. Invoked by a systemd user timer (or cron) as: ledger-agent sync
 set -eu
 
+AGENT_VERSION="0.1.0"
+
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ledger-agent"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ledger-agent"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
@@ -16,10 +18,22 @@ die()  { printf '\033[1;31m[ledger] error:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ -f "$CONFIG_FILE" ] || die "No config at $CONFIG_FILE. Re-run the installer."
 
-# --- Minimal TOML reader (flat key = "value") ------------------------------
+# --- Minimal TOML reader/writer (flat key = "value") -----------------------
 conf() {
   sed -n 's/^[[:space:]]*'"$1"'[[:space:]]*=[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
     "$CONFIG_FILE" | head -n1
+}
+
+# Set a key in config.toml, replacing it in place or appending if absent.
+set_conf() {
+  key="$1"; val="$2"
+  if grep -q "^[[:space:]]*$key[[:space:]]*=" "$CONFIG_FILE"; then
+    tmp="$CONFIG_FILE.tmp.$$"
+    sed "s|^[[:space:]]*$key[[:space:]]*=.*|$key = \"$val\"|" "$CONFIG_FILE" > "$tmp" \
+      && mv "$tmp" "$CONFIG_FILE"
+  else
+    printf '%s = "%s"\n' "$key" "$val" >> "$CONFIG_FILE"
+  fi
 }
 
 SERVER_URL="$(conf server_url)"
@@ -143,8 +157,67 @@ cmd_sync() {
   return "$rc"
 }
 
+# --- Self-update -----------------------------------------------------------
+# Resolve the absolute path of the installed agent so `update` can replace it.
+resolve_self() {
+  if [ -n "${LEDGER_AGENT_PATH:-}" ]; then printf '%s' "$LEDGER_AGENT_PATH"; return; fi
+  case "$0" in
+    /*) if [ -f "$0" ]; then printf '%s' "$0"; return; fi ;;
+  esac
+  p="$(command -v ledger-agent 2>/dev/null || true)"
+  [ -n "$p" ] && { printf '%s' "$p"; return; }
+  printf '%s' "$HOME/.local/bin/ledger-agent"
+}
+
+cmd_update() {
+  target="$(resolve_self)"
+  log "Updating agent from $SERVER_URL (current v$AGENT_VERSION) -> $target"
+
+  tmp="$target.tmp.$$"
+  if ! curl -fsS "$SERVER_URL/ledger-agent.sh" -o "$tmp"; then
+    rm -f "$tmp"
+    die "Failed to download update from $SERVER_URL/ledger-agent.sh"
+  fi
+  # Sanity-check the download before trusting it as an executable.
+  if ! head -n1 "$tmp" | grep -q '^#!'; then
+    rm -f "$tmp"
+    die "Downloaded file does not look like a script; leaving current agent in place."
+  fi
+  chmod +x "$tmp"
+  # Atomic rename: the running process keeps its open inode, so replacing the
+  # path mid-run is safe.
+  mv "$tmp" "$target"
+  newver="$(sh "$target" version 2>/dev/null | sed -n 's/.*v\([0-9][^ ]*\).*/\1/p' | head -n1)"
+  log "Agent updated${newver:+ to v$newver} at $target"
+
+  # Best-effort: re-pin ccusage version from the server so all machines match.
+  meta="$(curl -fsS "$SERVER_URL/api/meta" 2>/dev/null || true)"
+  srvver="$(printf '%s' "$meta" | sed -n 's/.*"ccusage_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  if [ -n "$srvver" ] && [ "$srvver" != "$CCUSAGE_VERSION" ]; then
+    set_conf ccusage_version "$srvver"
+    log "Re-pinned ccusage version: $CCUSAGE_VERSION -> $srvver"
+  fi
+
+  log "Done. Run 'ledger-agent sync' to resync all usage now, or wait for the timer."
+}
+
+usage() {
+  cat <<EOF
+ledger-agent v$AGENT_VERSION
+
+Usage: ledger-agent <command>
+
+Commands:
+  sync       Run ccusage and upload parsed usage + a periodic raw archive (default).
+  update     Re-download the latest agent from the server and re-pin ccusage.
+  version    Print the agent version and config path.
+EOF
+}
+
 case "${1:-sync}" in
-  sync)    cmd_sync ;;
-  version) echo "ledger-agent (config: $CONFIG_FILE)" ;;
-  *)       die "Unknown command: $1 (expected: sync)" ;;
+  sync)          cmd_sync ;;
+  update)        cmd_update ;;
+  version)       echo "ledger-agent v$AGENT_VERSION (config: $CONFIG_FILE)" ;;
+  -h|--help|help) usage ;;
+  *)             warn "Unknown command: $1"; usage; exit 2 ;;
 esac

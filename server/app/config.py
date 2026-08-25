@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # Pinned ccusage version the install script/agent should use. Surfaced to the
     # install endpoint so every enrolled machine reports comparably.
-    ccusage_version: str = "17.1.3"
+    ccusage_version: str = "20.0.20"
 
     # Public base URL of this server (used to render the install one-liner). If
     # empty, the dashboard falls back to the browser's current origin.

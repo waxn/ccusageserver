@@ -24,7 +24,7 @@ services:
       # Public URL the agents reach this server at (used to render install.sh).
       LEDGER_PUBLIC_BASE_URL: ${LEDGER_PUBLIC_BASE_URL:-}
       # Pinned ccusage version every enrolled machine will use.
-      LEDGER_CCUSAGE_VERSION: ${LEDGER_CCUSAGE_VERSION:-17.1.3}
+      LEDGER_CCUSAGE_VERSION: ${LEDGER_CCUSAGE_VERSION:-20.0.20}
       # Flag a device as stale after this many hours without a check-in.
       LEDGER_DEVICE_STALE_AFTER_HOURS: ${LEDGER_DEVICE_STALE_AFTER_HOURS:-24}
     volumes:

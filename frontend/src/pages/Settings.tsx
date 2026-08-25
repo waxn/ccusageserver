@@ -1,27 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, type EnrollmentCreated, type EnrollmentToken, type Meta } from "../lib/api";
+import { EnrollForm } from "../components/EnrollDevice";
+import { api, type EnrollmentToken, type Meta } from "../lib/api";
 import { formatDate } from "../lib/format";
-
-function CopyBox({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-stretch gap-2">
-      <code className="flex-1 overflow-x-auto whitespace-nowrap rounded-lg bg-night px-3 py-2.5 text-xs text-paper/90 dark:bg-black/40">
-        {text}
-      </code>
-      <button
-        className="btn-ghost shrink-0 border border-black/10 dark:border-white/10"
-        onClick={() => {
-          navigator.clipboard?.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-      >
-        {copied ? "Copied" : "Copy"}
-      </button>
-    </div>
-  );
-}
 
 function tokenStatus(t: EnrollmentToken): { label: string; cls: string } {
   if (t.revoked_at) return { label: "Revoked", cls: "text-gray-500" };
@@ -34,9 +14,6 @@ function tokenStatus(t: EnrollmentToken): { label: string; cls: string } {
 export default function Settings() {
   const [tokens, setTokens] = useState<EnrollmentToken[]>([]);
   const [meta, setMeta] = useState<Meta | null>(null);
-  const [created, setCreated] = useState<EnrollmentCreated | null>(null);
-  const [label, setLabel] = useState("");
-  const [busy, setBusy] = useState(false);
 
   async function load() {
     const [t, m] = await Promise.all([api.enrollmentTokens(), api.meta()]);
@@ -47,18 +24,6 @@ export default function Settings() {
   useEffect(() => {
     load();
   }, []);
-
-  async function generate() {
-    setBusy(true);
-    try {
-      const c = await api.createEnrollment(label.trim() || undefined);
-      setCreated(c);
-      setLabel("");
-      load();
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function revoke(id: number) {
     await api.revokeEnrollment(id);
@@ -74,46 +39,18 @@ export default function Settings() {
         </p>
       </div>
 
-      <div className="card p-6">
-        <h2 className="text-base font-semibold">Enroll a new device</h2>
-        <p className="mt-1 text-sm text-ink-muted dark:text-paper/50">
-          Generate a token, then run the printed one-liner on the target machine. The token is
-          shown once and exchanged for a permanent device key on first check-in.
-        </p>
-
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <div className="min-w-[200px] flex-1">
-            <label className="label">Label (optional)</label>
-            <input
-              className="input"
-              placeholder="e.g. thinkpad, desktop"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-            />
-          </div>
-          <button className="btn-primary" onClick={generate} disabled={busy}>
-            {busy ? "Generating…" : "Generate token"}
-          </button>
+      <div className="card overflow-hidden">
+        {/* Dual tone: warm coral header band over the paper card body. */}
+        <div className="bg-clay-500 px-6 py-4 text-white">
+          <h2 className="text-base font-semibold">Enroll a new device</h2>
+          <p className="mt-0.5 text-sm text-white/80">
+            Generate a token, then run the printed one-liner on the target machine. The token is
+            shown once and exchanged for a permanent device key on first check-in.
+          </p>
         </div>
-
-        {created && (
-          <div className="mt-5 space-y-3 rounded-xl2 border border-clay-300/40 bg-clay-50/60 p-4 dark:border-clay-300/10 dark:bg-night-muted/60">
-            <div>
-              <div className="label">Install command (run on the new machine)</div>
-              <CopyBox text={created.install_command} />
-            </div>
-            <div>
-              <div className="label">Enrollment token</div>
-              <CopyBox text={created.token} />
-            </div>
-            <p className="text-xs text-ink-muted dark:text-paper/40">
-              Save this now — it won't be shown again.
-              {created.expires_at
-                ? ` Expires ${formatDate(created.expires_at)}.`
-                : " Does not expire."}
-            </p>
-          </div>
-        )}
+        <div className="p-6">
+          <EnrollForm onCreated={() => load()} />
+        </div>
       </div>
 
       <div className="card overflow-hidden">

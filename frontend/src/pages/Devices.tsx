@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AddDeviceModal } from "../components/EnrollDevice";
 import { api, type Device } from "../lib/api";
 import { formatDate, relativeTime } from "../lib/format";
 
@@ -24,10 +25,22 @@ function HealthBadge({ device }: { device: Device }) {
   );
 }
 
+function AddDeviceButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button className="btn-primary" onClick={onClick}>
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+      </svg>
+      Add device
+    </button>
+  );
+}
+
 export default function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -51,14 +64,21 @@ export default function Devices() {
     load();
   }
 
+  const activeCount = devices.filter((d) => !d.revoked_at).length;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Devices</h1>
-        <p className="text-sm text-ink-muted dark:text-paper/50">
-          Machines syncing usage to this account. A device that stops checking in is flagged so
-          silent sync failures don't go unnoticed.
-        </p>
+      <AddDeviceModal open={modalOpen} onClose={() => setModalOpen(false)} onCreated={() => load()} />
+
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Devices</h1>
+          <p className="text-sm text-ink-muted dark:text-paper/50">
+            Machines syncing usage to this account. A device that stops checking in is flagged so
+            silent sync failures don't go unnoticed.
+          </p>
+        </div>
+        {devices.length > 0 && <AddDeviceButton onClick={() => setModalOpen(true)} />}
       </div>
 
       {error && (
@@ -68,19 +88,38 @@ export default function Devices() {
       )}
 
       <div className="card overflow-hidden">
+        {/* Dual tone: warm coral-tinted header band over the paper table body. */}
+        <div className="flex items-center justify-between border-b border-clay-200/50 bg-clay-50/70 px-5 py-3.5 dark:border-white/5 dark:bg-night-muted/50">
+          <div className="text-sm font-semibold">
+            Enrolled machines
+            {!loading && (
+              <span className="ml-2 rounded-full bg-clay-100 px-2 py-0.5 text-xs font-medium text-clay-700 dark:bg-clay-500/20 dark:text-clay-200">
+                {activeCount} active
+              </span>
+            )}
+          </div>
+        </div>
+
         {loading ? (
           <div className="px-5 py-10 text-center text-sm text-ink-muted dark:text-paper/40">
             Loading…
           </div>
         ) : devices.length === 0 ? (
-          <div className="px-5 py-12 text-center">
-            <p className="text-sm text-ink-muted dark:text-paper/50">
-              No devices enrolled yet.
+          <div className="flex flex-col items-center px-5 py-14 text-center">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-clay-100 text-clay-600 dark:bg-clay-500/20 dark:text-clay-300">
+              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="4" width="14" height="11" rx="2" />
+                <path d="M18 8h3a1 1 0 011 1v9a1 1 0 01-1 1h-3M2 19h9" strokeLinecap="round" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium">No devices enrolled yet</p>
+            <p className="mt-1 max-w-sm text-sm text-ink-muted dark:text-paper/40">
+              Add a machine to start tracking its usage. You'll get a one-liner to run on it,
+              Tailscale-style.
             </p>
-            <p className="mt-1 text-sm text-ink-muted dark:text-paper/40">
-              Head to <span className="font-medium">Settings</span> to create an enrollment token
-              and run the install one-liner on a machine.
-            </p>
+            <div className="mt-5">
+              <AddDeviceButton onClick={() => setModalOpen(true)} />
+            </div>
           </div>
         ) : (
           <table className="w-full text-sm">

@@ -129,9 +129,12 @@ On each run (`ledger-agent sync`) it:
 
 - runs `npx -y ccusage@<pinned> daily --json` with `TZ` and `CCUSAGE_TIMEZONE`
   pinned (so every device buckets days on the same clock) and POSTs the JSON to
-  `/api/usage/report` — the server upserts idempotently on
-  `(device, tool, model, date)`, so re-sending overlapping ranges never
-  duplicates;
+  `/api/usage/report`. ccusage reports the **entire local history** it can find
+  (there's no date limit), so the first sync backfills all usage still on disk;
+  the server upserts idempotently on `(device, tool, model, date)`, so
+  re-sending overlapping ranges on every run never duplicates. (The only history
+  Ledger can't recover is data Claude Code already deleted locally before the
+  agent's first run — hence the raw archive below.)
 - at most once per `archive_interval_hours` (default 24), tars the raw source
   directory (`~/.claude/projects` for Claude) and POSTs it to
   `/api/usage/archive`. **This tarball is the real insurance policy** — if the
@@ -151,14 +154,32 @@ archive_interval_hours = 24
 ```
 
 Change the reporting timezone or tracked tools by editing this file; the next
-scheduled run picks it up. Trigger a run by hand with:
+scheduled run picks it up. The installed command is `ledger-agent`
+(in `~/.local/bin`):
 
 ```sh
-~/.local/bin/ledger-agent sync
+ledger-agent sync       # run a sync now (backfills full local history)
+ledger-agent update     # pull the latest agent from the server + re-pin ccusage
+ledger-agent version    # show agent version and config path
 # inspect / manage the timer:
 systemctl --user status ledger-agent.timer
 journalctl --user -u ledger-agent.service -e
 ```
+
+### Updating the agent
+
+To upgrade an already-enrolled machine without re-running the installer:
+
+```sh
+ledger-agent update && ledger-agent sync
+```
+
+`update` re-downloads the agent script from your server (the same
+`/ledger-agent.sh` the installer used) and, if the server's pinned
+`ccusage_version` has changed, updates it in the local config so every machine
+stays comparable. It replaces the running script atomically, so it's safe to run
+even while a sync is in progress. Running `sync` afterward re-affirms the full
+history immediately rather than waiting for the timer.
 
 No systemd (containers, non-Linux)? Schedule `ledger-agent sync` from cron:
 
