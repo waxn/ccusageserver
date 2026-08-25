@@ -64,6 +64,24 @@ export default function Devices() {
     load();
   }
 
+  async function rename(d: Device) {
+    const next = prompt("Rename device", d.display_name);
+    if (next === null) return;
+    await api.renameDevice(d.id, next.trim() || null);
+    load();
+  }
+
+  async function remove(d: Device) {
+    if (
+      !confirm(
+        `Delete "${d.display_name}"? This permanently removes the device AND its usage history from your dashboard. This cannot be undone.`,
+      )
+    )
+      return;
+    await api.deleteDevice(d.id);
+    load();
+  }
+
   const activeCount = devices.filter((d) => !d.revoked_at).length;
 
   return (
@@ -136,8 +154,9 @@ export default function Devices() {
               {devices.map((d) => (
                 <tr key={d.id} className="border-t border-black/5 dark:border-white/5">
                   <td className="px-5 py-3.5">
-                    <div className="font-medium">{d.hostname}</div>
+                    <div className="font-medium">{d.display_name}</div>
                     <div className="text-xs text-ink-muted dark:text-paper/40">
+                      {d.label && d.label !== d.hostname ? `${d.hostname} · ` : ""}
                       {d.os || "unknown OS"}
                     </div>
                   </td>
@@ -152,15 +171,29 @@ export default function Devices() {
                   <td className="hidden px-5 py-3.5 text-ink-muted dark:text-paper/40 lg:table-cell">
                     {formatDate(d.created_at)}
                   </td>
-                  <td className="px-5 py-3.5 text-right">
-                    {!d.revoked_at && (
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center justify-end gap-4">
                       <button
-                        onClick={() => revoke(d.id)}
-                        className="text-sm font-medium text-clay-600 hover:text-clay-700"
+                        onClick={() => rename(d)}
+                        className="text-sm font-medium text-ink-muted transition hover:text-ink dark:text-paper/50 dark:hover:text-paper"
                       >
-                        Revoke
+                        Rename
                       </button>
-                    )}
+                      {!d.revoked_at && (
+                        <button
+                          onClick={() => revoke(d.id)}
+                          className="text-sm font-medium text-ink-muted transition hover:text-ink dark:text-paper/50 dark:hover:text-paper"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                      <button
+                        onClick={() => remove(d)}
+                        className="text-sm font-medium text-red-500 transition hover:text-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

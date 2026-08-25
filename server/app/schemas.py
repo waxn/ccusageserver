@@ -81,11 +81,17 @@ class DeviceInfo(BaseModel):
 
     id: int
     hostname: str
+    label: str | None = None
+    display_name: str = ""
     os: str | None
     last_seen_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime
     stale: bool = False
+
+
+class DeviceRenameRequest(BaseModel):
+    label: str | None = Field(default=None, max_length=120)
 
 
 # --- Usage summary ---------------------------------------------------------

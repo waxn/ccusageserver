@@ -33,8 +33,9 @@ export default function TrendChart({ data }: { data: TrendPoint[] }) {
   }
 
   return (
-    <div className="h-72 w-full">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="flex h-80 w-full flex-col">
+      <div className="min-h-0 flex-1">
+        <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
           <defs>
             {SERIES.map((s) => (
@@ -84,8 +85,9 @@ export default function TrendChart({ data }: { data: TrendPoint[] }) {
             />
           ))}
         </AreaChart>
-      </ResponsiveContainer>
-      <div className="mt-3 flex flex-wrap gap-4">
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-4 flex shrink-0 flex-wrap gap-4">
         {SERIES.map((s) => (
           <div key={s.key} className="flex items-center gap-1.5 text-xs text-ink-muted dark:text-paper/50">
             <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />

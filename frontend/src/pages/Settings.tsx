@@ -30,6 +30,13 @@ export default function Settings() {
     load();
   }
 
+  async function remove(id: number) {
+    if (!confirm("Delete this enrollment token? Devices already enrolled with it keep working."))
+      return;
+    await api.deleteEnrollment(id);
+    load();
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -86,15 +93,23 @@ export default function Settings() {
                     <td className="hidden px-5 py-3 text-ink-muted dark:text-paper/40 md:table-cell">
                       {t.expires_at ? formatDate(t.expires_at) : "never"}
                     </td>
-                    <td className="px-5 py-3 text-right">
-                      {canRevoke && (
+                    <td className="px-5 py-3">
+                      <div className="flex items-center justify-end gap-4">
+                        {canRevoke && (
+                          <button
+                            onClick={() => revoke(t.id)}
+                            className="text-sm font-medium text-ink-muted transition hover:text-ink dark:text-paper/50 dark:hover:text-paper"
+                          >
+                            Revoke
+                          </button>
+                        )}
                         <button
-                          onClick={() => revoke(t.id)}
-                          className="text-sm font-medium text-clay-600 hover:text-clay-700"
+                          onClick={() => remove(t.id)}
+                          className="text-sm font-medium text-red-500 transition hover:text-red-600"
                         >
-                          Revoke
+                          Delete
                         </button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 );

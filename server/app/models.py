@@ -94,6 +94,9 @@ class Device(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Human-friendly name, seeded from the enrollment token's label and editable
+    # from the dashboard. Distinguishes machines that share a hostname.
+    label: Mapped[str | None] = mapped_column(String(120), nullable=True)
     os: Mapped[str | None] = mapped_column(String(120), nullable=True)
     enrollment_token_used: Mapped[str | None] = mapped_column(String(64), nullable=True)
     api_key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)

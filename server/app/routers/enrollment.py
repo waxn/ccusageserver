@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -90,3 +90,19 @@ def revoke_enrollment_token(
         db.commit()
         db.refresh(token)
     return token
+
+
+@router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_enrollment_token(
+    token_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove an enrollment token from the list. Devices already enrolled with
+    it keep working — their API key is independent of the token."""
+    token = db.get(EnrollmentToken, token_id)
+    if token is None or token.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
+    db.delete(token)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

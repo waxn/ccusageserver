@@ -1,10 +1,10 @@
-"""Device enrollment, listing, and revocation."""
+"""Device enrollment, listing, renaming, revocation, and deletion."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from ..schemas import (
     DeviceEnrollRequest,
     DeviceEnrollResponse,
     DeviceInfo,
+    DeviceRenameRequest,
 )
 from ..security import generate_secret, hash_secret
 
@@ -29,6 +30,21 @@ def _is_stale(device: Device, now: datetime) -> bool:
     if last_seen.tzinfo is None:
         last_seen = last_seen.replace(tzinfo=timezone.utc)
     return (now - last_seen) > timedelta(hours=settings.device_stale_after_hours)
+
+
+def _to_info(device: Device, now: datetime | None = None) -> DeviceInfo:
+    now = now or datetime.now(timezone.utc)
+    info = DeviceInfo.model_validate(device)
+    info.display_name = (device.label or "").strip() or device.hostname
+    info.stale = _is_stale(device, now)
+    return info
+
+
+def _get_owned_device(device_id: int, user: User, db: Session) -> Device:
+    device = db.get(Device, device_id)
+    if device is None or device.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    return device
 
 
 @router.post("/enroll", response_model=DeviceEnrollResponse, status_code=status.HTTP_201_CREATED)
@@ -50,6 +66,9 @@ def enroll_device(payload: DeviceEnrollRequest, db: Session = Depends(get_db)) -
     device = Device(
         user_id=token.user_id,
         hostname=payload.hostname,
+        # Seed the display name from the token's label so a machine can be named
+        # at enrollment time (important when hostnames collide).
+        label=(token.label or "").strip() or None,
         os=payload.os,
         enrollment_token_used=token_hash,
         api_key_hash=hash_secret(api_key),
@@ -79,12 +98,22 @@ def list_devices(
     rows = db.execute(
         select(Device).where(Device.user_id == user.id).order_by(Device.created_at.asc())
     ).scalars()
-    result: list[DeviceInfo] = []
-    for d in rows:
-        info = DeviceInfo.model_validate(d)
-        info.stale = _is_stale(d, now)
-        result.append(info)
-    return result
+    return [_to_info(d, now) for d in rows]
+
+
+@router.patch("/{device_id}", response_model=DeviceInfo)
+def rename_device(
+    device_id: int,
+    payload: DeviceRenameRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DeviceInfo:
+    device = _get_owned_device(device_id, user, db)
+    device.label = (payload.label or "").strip() or None
+    db.add(device)
+    db.commit()
+    db.refresh(device)
+    return _to_info(device)
 
 
 @router.post("/{device_id}/revoke", response_model=DeviceInfo)
@@ -93,14 +122,28 @@ def revoke_device(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DeviceInfo:
-    device = db.get(Device, device_id)
-    if device is None or device.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    device = _get_owned_device(device_id, user, db)
     if device.revoked_at is None:
         device.revoked_at = datetime.now(timezone.utc)
         db.add(device)
         db.commit()
         db.refresh(device)
-    info = DeviceInfo.model_validate(device)
-    info.stale = _is_stale(device, datetime.now(timezone.utc))
-    return info
+    return _to_info(device)
+
+
+@router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_device(
+    device_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Permanently delete a device and its usage rows + archive metadata.
+
+    This cascades (see the ORM relationships), so it removes that device's
+    historical usage from the dashboard. Intended for pruning dead/duplicate
+    enrollments.
+    """
+    device = _get_owned_device(device_id, user, db)
+    db.delete(device)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -74,6 +74,8 @@ export interface Summary {
 export interface Device {
   id: number;
   hostname: string;
+  label: string | null;
+  display_name: string;
   os: string | null;
   last_seen_at: string | null;
   revoked_at: string | null;
@@ -133,6 +135,13 @@ export const api = {
   devices: () => request<Device[]>("/api/devices"),
   revokeDevice: (id: number) =>
     request<Device>(`/api/devices/${id}/revoke`, { method: "POST" }),
+  renameDevice: (id: number, label: string | null) =>
+    request<Device>(`/api/devices/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label }),
+    }),
+  deleteDevice: (id: number) =>
+    request<void>(`/api/devices/${id}`, { method: "DELETE" }),
 
   enrollmentTokens: () => request<EnrollmentToken[]>("/api/enrollment"),
   createEnrollment: (label?: string) =>
@@ -142,4 +151,6 @@ export const api = {
     }),
   revokeEnrollment: (id: number) =>
     request<EnrollmentToken>(`/api/enrollment/${id}/revoke`, { method: "POST" }),
+  deleteEnrollment: (id: number) =>
+    request<void>(`/api/enrollment/${id}`, { method: "DELETE" }),
 };

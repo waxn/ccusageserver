@@ -130,6 +130,48 @@ def test_devices_listing_and_revoke(client, auth_client):
     )
 
 
+def test_device_label_from_token_and_rename_and_delete(client, auth_client):
+    # Enroll with a labelled token -> device display name comes from the label.
+    resp = auth_client.post("/api/enrollment/create", json={"label": "thinkpad"})
+    token = resp.json()["token"]
+    client.post(
+        "/api/devices/enroll",
+        json={"enrollment_token": token, "hostname": "same-host", "os": "Linux"},
+    )
+    devices = auth_client.get("/api/devices").json()
+    dev = devices[-1]
+    assert dev["label"] == "thinkpad"
+    assert dev["display_name"] == "thinkpad"  # not the hostname
+
+    # Rename it.
+    renamed = auth_client.patch(f"/api/devices/{dev['id']}", json={"label": "desktop"}).json()
+    assert renamed["display_name"] == "desktop"
+
+    # Delete it -> gone from the list.
+    assert auth_client.delete(f"/api/devices/{dev['id']}").status_code == 204
+    ids = [d["id"] for d in auth_client.get("/api/devices").json()]
+    assert dev["id"] not in ids
+
+
+def test_display_name_falls_back_to_hostname(client, auth_client):
+    resp = auth_client.post("/api/enrollment/create", json={})  # no label
+    token = resp.json()["token"]
+    client.post(
+        "/api/devices/enroll",
+        json={"enrollment_token": token, "hostname": "bare-host", "os": "Linux"},
+    )
+    dev = auth_client.get("/api/devices").json()[-1]
+    assert dev["label"] is None
+    assert dev["display_name"] == "bare-host"
+
+
+def test_delete_enrollment_token(client, auth_client):
+    tid = auth_client.post("/api/enrollment/create", json={}).json()["id"]
+    assert auth_client.delete(f"/api/enrollment/{tid}").status_code == 204
+    ids = [t["id"] for t in auth_client.get("/api/enrollment").json()]
+    assert tid not in ids
+
+
 def test_archive_upload(client, auth_client):
     api_key = _enroll(client, auth_client)
     dev_headers = {"Authorization": f"Bearer {api_key}"}
