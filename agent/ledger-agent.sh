@@ -93,7 +93,7 @@ run_ccusage() {
 # --- Upload a parsed report ------------------------------------------------
 post_report() {
   tool="$1"; json="$2"
-  code="$(printf '%s' "$json" | curl -fsS -o "$DATA_DIR/last_report_response.json" -w '%{http_code}' \
+  code="$(printf '%s' "$json" | curl -fsSL -o "$DATA_DIR/last_report_response.json" -w '%{http_code}' \
     -X POST \
     -H "Authorization: Bearer $API_KEY" \
     -H 'Content-Type: application/json' \
@@ -128,7 +128,7 @@ post_archive() {
     warn "Failed to create archive for $tool."; rm -f "$tmp"; return 1
   fi
 
-  code="$(curl -fsS -o /dev/null -w '%{http_code}' -X POST \
+  code="$(curl -fsSL -o /dev/null -w '%{http_code}' -X POST \
     -H "Authorization: Bearer $API_KEY" \
     -F "file=@$tmp;type=application/gzip;filename=${tool}-source.tar.gz" \
     "$SERVER_URL/api/usage/archive?source_tool=$tool" 2>/dev/null)" || code="000"
@@ -177,7 +177,7 @@ cmd_update() {
   log "Updating agent from $SERVER_URL (current v$AGENT_VERSION) -> $target"
 
   tmp="$target.tmp.$$"
-  if ! curl -fsS "$SERVER_URL/ledger-agent.sh" -o "$tmp"; then
+  if ! curl -fsSL "$SERVER_URL/ledger-agent.sh" -o "$tmp"; then
     rm -f "$tmp"
     die "Failed to download update from $SERVER_URL/ledger-agent.sh"
   fi
@@ -194,7 +194,7 @@ cmd_update() {
   log "Agent updated${newver:+ to v$newver} at $target"
 
   # Best-effort: re-pin ccusage version from the server so all machines match.
-  meta="$(curl -fsS "$SERVER_URL/api/meta" 2>/dev/null || true)"
+  meta="$(curl -fsSL "$SERVER_URL/api/meta" 2>/dev/null || true)"
   srvver="$(printf '%s' "$meta" | sed -n 's/.*"ccusage_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
   if [ -n "$srvver" ] && [ "$srvver" != "$CCUSAGE_VERSION" ]; then
     set_conf ccusage_version "$srvver"

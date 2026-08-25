@@ -31,6 +31,14 @@ ENROLLMENT_TOKEN="${1:-${LEDGER_ENROLLMENT_TOKEN:-}}"
 case "$SERVER_URL" in
   *@@*|"") die "Server URL not configured. Set LEDGER_SERVER_URL or run via the served install.sh." ;;
 esac
+# Normalize the scheme. A scheme-less URL makes curl default to http://, which a
+# TLS-terminating proxy then 307-redirects to https:// — and the agent's POSTs
+# don't follow redirects, so enrollment fails. Default to https:// when missing.
+case "$SERVER_URL" in
+  http://*|https://*) ;;
+  *) SERVER_URL="https://$SERVER_URL" ;;
+esac
+SERVER_URL="${SERVER_URL%/}"  # strip any trailing slash
 case "$CCUSAGE_VERSION" in
   *@@*|"") CCUSAGE_VERSION="latest"; warn "ccusage version not pinned; falling back to 'latest'." ;;
 esac
@@ -72,10 +80,17 @@ enroll_payload() {
     "$ENROLLMENT_TOKEN" "$HOSTNAME_VAL" "$OS_LABEL"
 }
 
-ENROLL_RESPONSE="$(enroll_payload | curl -fsS -X POST \
+ENROLL_RESPONSE="$(enroll_payload | curl -fsSL -X POST \
   -H 'Content-Type: application/json' \
   --data @- \
   "$SERVER_URL/api/devices/enroll")" || die "Enrollment failed. Check the token and server URL."
+
+# Guard against a proxy returning an HTML login/redirect page instead of JSON
+# (e.g. reverse-proxy SSO still gating the API paths).
+case "$ENROLL_RESPONSE" in
+  *"<html"*|*"<!DOCTYPE"*|"Temporary Redirect"|"Moved Permanently")
+    die "Enrollment endpoint did not return JSON (got a redirect/HTML page). Your reverse proxy is likely gating /api or redirecting http->https. Ensure the API paths are reachable over https without SSO." ;;
+esac
 
 # Extract fields from JSON without requiring jq.
 json_get() {
@@ -110,7 +125,7 @@ log "Wrote config to $CONFIG_FILE"
 
 # --- Install the agent script ----------------------------------------------
 log "Downloading agent script ..."
-if curl -fsS "$SERVER_URL/ledger-agent.sh" -o "$AGENT_PATH.tmp"; then
+if curl -fsSL "$SERVER_URL/ledger-agent.sh" -o "$AGENT_PATH.tmp"; then
   mv "$AGENT_PATH.tmp" "$AGENT_PATH"
   chmod +x "$AGENT_PATH"
   log "Installed agent to $AGENT_PATH"
