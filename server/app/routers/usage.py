@@ -15,6 +15,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -25,9 +26,11 @@ from ..ccusage import parse_ccusage_daily
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_device, get_current_user
-from ..models import Device, RawArchive, UsageReport, User
+from ..models import Device, EncryptedUsage, RawArchive, UsageReport, User
 from ..schemas import (
     ArchiveResponse,
+    EncryptedBlob,
+    EncryptedBlobUpload,
     ReportIngestResponse,
     SummaryBucket,
     SummaryResponse,
@@ -156,6 +159,52 @@ async def upload_archive(
     db.commit()
     db.refresh(archive)
     return ArchiveResponse(id=archive.id, size_bytes=archive.size_bytes, uploaded_at=archive.uploaded_at)
+
+
+# --- End-to-end encrypted usage (zero-knowledge) ---------------------------
+
+
+@router.put("/encrypted", status_code=status.HTTP_204_NO_CONTENT)
+def put_encrypted(
+    payload: EncryptedBlobUpload,
+    device: Device = Depends(get_current_device),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Store the device's latest encrypted ccusage blob (one per device).
+
+    The server cannot read the contents. Overwritten each sync, so this is
+    idempotent by construction — no duplicate handling needed.
+    """
+    blob = db.execute(
+        select(EncryptedUsage).where(EncryptedUsage.device_id == device.id)
+    ).scalar_one_or_none()
+    if blob is None:
+        blob = EncryptedUsage(device_id=device.id, nonce=payload.nonce, ciphertext=payload.ciphertext)
+    else:
+        blob.nonce = payload.nonce
+        blob.ciphertext = payload.ciphertext
+        blob.updated_at = datetime.now(timezone.utc)
+    db.add(blob)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/encrypted", response_model=list[EncryptedBlob])
+def list_encrypted(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[EncryptedBlob]:
+    """Return every device's encrypted blob for the browser to decrypt locally."""
+    rows = db.execute(
+        select(EncryptedUsage)
+        .join(Device, Device.id == EncryptedUsage.device_id)
+        .where(Device.user_id == user.id)
+    ).scalars()
+    return [
+        EncryptedBlob(
+            device_id=b.device_id, nonce=b.nonce, ciphertext=b.ciphertext, updated_at=b.updated_at
+        )
+        for b in rows
+    ]
 
 
 # --- Summary ---------------------------------------------------------------

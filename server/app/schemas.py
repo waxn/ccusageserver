@@ -140,3 +140,33 @@ class ArchiveResponse(BaseModel):
     id: int
     size_bytes: int
     uploaded_at: datetime
+
+
+# --- End-to-end encryption -------------------------------------------------
+
+
+class CryptoSetupRequest(BaseModel):
+    salt: str = Field(min_length=8, max_length=64)  # base64
+    iterations: int = Field(ge=100_000, le=2_000_000)
+    verifier_nonce: str = Field(min_length=8, max_length=64)
+    verifier_ct: str = Field(min_length=8, max_length=255)
+
+
+class CryptoParamsResponse(BaseModel):
+    configured: bool
+    salt: str | None = None
+    iterations: int | None = None
+    verifier_nonce: str | None = None
+    verifier_ct: str | None = None
+
+
+class EncryptedBlobUpload(BaseModel):
+    nonce: str = Field(min_length=8, max_length=64)
+    ciphertext: str = Field(min_length=1)
+
+
+class EncryptedBlob(BaseModel):
+    device_id: int
+    nonce: str
+    ciphertext: str
+    updated_at: datetime

@@ -1,9 +1,11 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import { useAuth } from "./lib/auth";
+import { CryptoProvider } from "./lib/cryptoContext";
 import Dashboard from "./pages/Dashboard";
 import Devices from "./pages/Devices";
 import Settings from "./pages/Settings";
+import { EncryptionGate } from "./pages/Encryption";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 
@@ -31,13 +33,17 @@ export default function App() {
   }
 
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/devices" element={<Devices />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    <CryptoProvider>
+      <EncryptionGate>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/devices" element={<Devices />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Layout>
+      </EncryptionGate>
+    </CryptoProvider>
   );
 }

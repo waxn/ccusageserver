@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -38,6 +39,15 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
     )
+
+    # End-to-end encryption parameters. These are NOT secret: the salt and the
+    # verifier let any client derive/check the key from the user's encryption
+    # password. The password and the derived key never reach the server, so the
+    # server cannot decrypt usage blobs (zero-knowledge).
+    crypto_salt: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    crypto_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    crypto_verifier_nonce: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    crypto_verifier_ct: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     devices: Mapped[list["Device"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
@@ -113,6 +123,9 @@ class Device(Base):
     raw_archives: Mapped[list["RawArchive"]] = relationship(
         back_populates="device", cascade="all, delete-orphan"
     )
+    encrypted_usage: Mapped["EncryptedUsage | None"] = relationship(
+        back_populates="device", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class UsageReport(Base):
@@ -156,6 +169,30 @@ class UsageReport(Base):
     )
 
     device: Mapped["Device"] = relationship(back_populates="usage_reports")
+
+
+class EncryptedUsage(Base):
+    """One opaque, client-encrypted blob per device — the latest full ccusage
+    JSON, AES-256-GCM encrypted with the user's key. The server stores and
+    returns it but cannot read it. Overwritten on each sync (so ingestion is
+    idempotent by construction)."""
+
+    __tablename__ = "encrypted_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), unique=True, index=True, nullable=False
+    )
+    nonce: Mapped[str] = mapped_column(String(64), nullable=False)  # base64, 12 bytes
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)  # base64 (ct||tag)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, server_default=func.now(), nullable=False
+    )
+
+    device: Mapped["Device"] = relationship(back_populates="encrypted_usage")
 
 
 class RawArchive(Base):

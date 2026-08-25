@@ -14,6 +14,9 @@ CCUSAGE_VERSION="${LEDGER_CCUSAGE_VERSION:-@@LEDGER_CCUSAGE_VERSION@@}"
 TIMEZONE="${LEDGER_TIMEZONE:-UTC}"
 TOOLS="${LEDGER_TOOLS:-claude}"
 SYNC_INTERVAL_MIN="${LEDGER_SYNC_INTERVAL_MIN:-45}"
+# End-to-end encryption password (must match the one set in the dashboard).
+# Pass via the environment: LEDGER_ENCRYPTION_PASSWORD=… curl … | sh -s -- <token>
+ENCRYPTION_PASSWORD="${LEDGER_ENCRYPTION_PASSWORD:-}"
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ledger-agent"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ledger-agent"
@@ -117,11 +120,26 @@ ccusage_version = "$CCUSAGE_VERSION"
 timezone = "$TIMEZONE"
 # Tools to track (space-separated inside the array): claude, opencode, ...
 tools = "$TOOLS"
-# Upload a raw source-directory tarball at most this often (hours).
+# End-to-end encryption password. Usage is encrypted on THIS machine with a key
+# derived from this password before upload; the server never sees it. Must match
+# the encryption password you set in the dashboard.
+encryption_password = "$ENCRYPTION_PASSWORD"
+# Raw source-directory upload. OFF by default: the tarball contains your full
+# session transcripts (prompts, replies, file contents) and is NOT end-to-end
+# encrypted. Only the encrypted ccusage token counts are uploaded unless true.
+upload_archives = false
+# When upload_archives is true, upload a tarball at most this often (hours).
 archive_interval_hours = 24
 EOF
 chmod 600 "$CONFIG_FILE"
 log "Wrote config to $CONFIG_FILE"
+
+if [ -z "$ENCRYPTION_PASSWORD" ]; then
+  warn "No encryption password set. Usage is end-to-end encrypted, so the agent"
+  warn "can't upload until you add it. Set your dashboard encryption password in:"
+  warn "  $CONFIG_FILE   (encryption_password = \"…\")"
+  warn "or reinstall with: LEDGER_ENCRYPTION_PASSWORD=… curl … | sh -s -- <token>"
+fi
 
 # --- Install the agent script ----------------------------------------------
 log "Downloading agent script ..."

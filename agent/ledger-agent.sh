@@ -42,6 +42,8 @@ CCUSAGE_VERSION="$(conf ccusage_version)"
 TIMEZONE="$(conf timezone)"
 TOOLS="$(conf tools)"
 ARCHIVE_INTERVAL_HOURS="$(conf archive_interval_hours)"
+UPLOAD_ARCHIVES="$(conf upload_archives)"
+ENCRYPTION_PASSWORD="$(conf encryption_password)"
 
 [ -n "$SERVER_URL" ] || die "server_url missing from config."
 [ -n "$API_KEY" ]    || die "api_key missing from config."
@@ -49,6 +51,9 @@ ARCHIVE_INTERVAL_HOURS="$(conf archive_interval_hours)"
 [ -n "$TIMEZONE" ] || TIMEZONE="UTC"
 [ -n "$TOOLS" ] || TOOLS="claude"
 [ -n "$ARCHIVE_INTERVAL_HOURS" ] || ARCHIVE_INTERVAL_HOURS=24
+# Default OFF: raw archives contain full session transcripts. Only enable if you
+# explicitly want that insurance copy uploaded.
+[ -n "$UPLOAD_ARCHIVES" ] || UPLOAD_ARCHIVES="false"
 
 mkdir -p "$DATA_DIR"
 
@@ -59,6 +64,13 @@ export CCUSAGE_TIMEZONE="$TIMEZONE"
 have() { command -v "$1" >/dev/null 2>&1; }
 have curl || die "curl is required."
 have npx  || die "npx (Node.js) is required to run ccusage."
+
+is_true() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    true|yes|1|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # --- Per-tool source directories (for the raw archive) ---------------------
 tool_source_dir() {
@@ -90,20 +102,92 @@ run_ccusage() {
   esac
 }
 
-# --- Upload a parsed report ------------------------------------------------
-post_report() {
-  tool="$1"; json="$2"
-  code="$(printf '%s' "$json" | curl -fsSL -o "$DATA_DIR/last_report_response.json" -w '%{http_code}' \
-    -X POST \
-    -H "Authorization: Bearer $API_KEY" \
-    -H 'Content-Type: application/json' \
-    --data @- \
-    "$SERVER_URL/api/usage/report?source_tool=$tool" 2>/dev/null)" || code="000"
-  if [ "$code" = "200" ]; then
-    log "Reported $tool usage: $(cat "$DATA_DIR/last_report_response.json")"
+# --- End-to-end encryption -------------------------------------------------
+# Usage data is encrypted here, on the machine, with a key derived from your
+# encryption password. The server only ever receives ciphertext. Node (already
+# required for ccusage) does the crypto; it is WebCrypto-compatible so the
+# browser decrypts the same blobs. See NODE_ENCRYPT below.
+
+json_field() {
+  # json_field <json> <key> — extract a string/number field from a flat object.
+  printf '%s' "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\{0,1\}\([^",}]*\)"\{0,1\}.*/\1/p' | head -n1
+}
+
+NODE_ENCRYPT='
+const crypto = require("node:crypto");
+const pw = process.env.LP || "";
+const salt = Buffer.from(process.env.LSALT || "", "base64");
+const iter = parseInt(process.env.LITER || "200000", 10);
+const key = crypto.pbkdf2Sync(pw, salt, iter, 32, "sha256");
+// Verify the password matches the account before encrypting.
+try {
+  const vn = Buffer.from(process.env.LVN || "", "base64");
+  const vc = Buffer.from(process.env.LVC || "", "base64");
+  const body = vc.subarray(0, vc.length - 16), tag = vc.subarray(vc.length - 16);
+  const d = crypto.createDecipheriv("aes-256-gcm", key, vn); d.setAuthTag(tag);
+  if (Buffer.concat([d.update(body), d.final()]).toString("utf8") !== "ledger-verify") throw 0;
+} catch (e) { console.error("VERIFY_FAIL"); process.exit(3); }
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", d => input += d);
+process.stdin.on("end", () => {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([c.update(input, "utf8"), c.final()]);
+  const data = Buffer.concat([enc, c.getAuthTag()]).toString("base64");
+  process.stdout.write(JSON.stringify({ nonce: iv.toString("base64"), ciphertext: data }));
+});
+'
+
+# Fetch KDF params for this account (device-authenticated). Populates globals.
+CRYPTO_CONFIGURED=""; CRYPTO_SALT=""; CRYPTO_ITER=""; CRYPTO_VN=""; CRYPTO_VC=""
+fetch_crypto_params() {
+  resp="$(curl -fsSL -H "Authorization: Bearer $API_KEY" "$SERVER_URL/api/crypto/params" 2>/dev/null)" || return 1
+  CRYPTO_CONFIGURED="$(json_field "$resp" configured)"
+  CRYPTO_SALT="$(json_field "$resp" salt)"
+  CRYPTO_ITER="$(json_field "$resp" iterations)"
+  CRYPTO_VN="$(json_field "$resp" verifier_nonce)"
+  CRYPTO_VC="$(json_field "$resp" verifier_ct)"
+  return 0
+}
+
+# Encrypt the ccusage JSON and upload the blob for this device.
+do_encrypted_report() {
+  if ! fetch_crypto_params; then
+    warn "Could not reach $SERVER_URL/api/crypto/params."; return 1
+  fi
+  case "$CRYPTO_CONFIGURED" in
+    true|True|1) : ;;
+    *) warn "End-to-end encryption isn't set up yet. Open the dashboard, set an encryption password, then re-run."; return 1 ;;
+  esac
+  if [ -z "$ENCRYPTION_PASSWORD" ]; then
+    warn "encryption_password is empty in $CONFIG_FILE. Add the password you set in the dashboard, then re-run."
+    return 1
+  fi
+
+  # ccusage --by-agent already covers every tool (claude/codex/opencode/...).
+  json="$(run_ccusage claude)" || json=""
+  if [ -z "$json" ]; then warn "ccusage produced no output."; return 1; fi
+
+  body="$(printf '%s' "$json" | LP="$ENCRYPTION_PASSWORD" LSALT="$CRYPTO_SALT" \
+    LITER="$CRYPTO_ITER" LVN="$CRYPTO_VN" LVC="$CRYPTO_VC" node -e "$NODE_ENCRYPT" 2>"$DATA_DIR/enc.err")"
+  if [ $? -ne 0 ] || [ -z "$body" ]; then
+    if grep -q VERIFY_FAIL "$DATA_DIR/enc.err" 2>/dev/null; then
+      warn "Encryption password does not match the dashboard. Fix encryption_password in $CONFIG_FILE."
+    else
+      warn "Local encryption failed: $(cat "$DATA_DIR/enc.err" 2>/dev/null)"
+    fi
+    return 1
+  fi
+
+  code="$(printf '%s' "$body" | curl -fsSL -o /dev/null -w '%{http_code}' -X PUT \
+    -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+    --data @- "$SERVER_URL/api/usage/encrypted" 2>/dev/null)" || code="000"
+  if [ "$code" = "204" ] || [ "$code" = "200" ]; then
+    log "Uploaded encrypted usage blob."
     return 0
   fi
-  warn "Report upload for $tool failed (HTTP $code)."
+  warn "Encrypted upload failed (HTTP $code)."
   return 1
 }
 
@@ -145,17 +229,19 @@ post_archive() {
 
 # --- Main sync -------------------------------------------------------------
 cmd_sync() {
-  log "Starting sync (tz=$TIMEZONE, ccusage=$CCUSAGE_VERSION, tools=$TOOLS)"
+  log "Starting sync (tz=$TIMEZONE, ccusage=$CCUSAGE_VERSION)"
   rc=0
-  for tool in $TOOLS; do
-    log "Processing tool: $tool"
-    if json="$(run_ccusage "$tool")" && [ -n "$json" ]; then
-      post_report "$tool" "$json" || rc=1
-    else
-      warn "No parsed usage produced for $tool."
-    fi
-    post_archive "$tool" "$(tool_source_dir "$tool")" || rc=1
-  done
+
+  # Encrypted usage (once; ccusage --by-agent covers every tool).
+  do_encrypted_report || rc=1
+
+  # Optional, plaintext raw archive (opt-in; NOT end-to-end encrypted).
+  if is_true "$UPLOAD_ARCHIVES"; then
+    for tool in $TOOLS; do
+      post_archive "$tool" "$(tool_source_dir "$tool")" || rc=1
+    done
+  fi
+
   [ "$rc" -eq 0 ] && log "Sync complete." || warn "Sync completed with some failures."
   return "$rc"
 }

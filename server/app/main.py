@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .config import settings
-from .routers import auth, devices, enrollment, usage
+from .routers import auth, crypto, devices, enrollment, usage
 
 app = FastAPI(
     title="Ledger — Coding-Agent Usage Tracker",
@@ -26,6 +26,7 @@ app.include_router(auth.router)
 app.include_router(enrollment.router)
 app.include_router(devices.router)
 app.include_router(usage.router)
+app.include_router(crypto.router)
 
 # Resolve paths relative to this file so it works both in Docker and locally.
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))

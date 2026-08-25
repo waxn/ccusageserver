@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { useCrypto } from "../lib/cryptoContext";
 import { useTheme } from "../lib/theme";
 
 function NavItem({ to, label, icon }: { to: string; label: string; icon: ReactNode }) {
@@ -91,6 +92,7 @@ const icons = {
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+  const { lock } = useCrypto();
   const [theme, toggleTheme] = useTheme();
 
   return (
@@ -126,7 +128,16 @@ export default function Layout({ children }: { children: ReactNode }) {
           <button onClick={toggleTheme} className="btn-ghost w-full justify-start">
             {theme === "dark" ? "☀︎ Light mode" : "☾ Dark mode"}
           </button>
-          <button onClick={logout} className="btn-ghost w-full justify-start text-clay-600">
+          <button onClick={lock} className="btn-ghost w-full justify-start">
+            🔒 Lock
+          </button>
+          <button
+            onClick={() => {
+              lock();
+              logout();
+            }}
+            className="btn-ghost w-full justify-start text-clay-600"
+          >
             ⏻ Sign out
           </button>
         </div>

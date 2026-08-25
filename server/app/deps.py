@@ -82,3 +82,40 @@ def get_current_device(
     db.add(device)
     db.commit()
     return device
+
+
+def get_account(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> User:
+    """Resolve the owning user from EITHER a dashboard JWT or a device API key.
+
+    Used by endpoints both the browser and the agent need (e.g. crypto params).
+    """
+    bearer: str | None = None
+    if authorization:
+        scheme, _, value = authorization.partition(" ")
+        if scheme.lower() == "bearer" and value:
+            bearer = value
+
+    # Try JWT first.
+    if bearer:
+        try:
+            payload = decode_access_token(bearer)
+            user = db.get(User, int(payload.get("sub")))
+            if user is not None:
+                return user
+        except (jwt.PyJWTError, TypeError, ValueError):
+            pass
+
+    # Fall back to a device API key.
+    api_key = x_api_key or bearer
+    if api_key:
+        device = db.execute(
+            select(Device).where(Device.api_key_hash == hash_secret(api_key))
+        ).scalar_one_or_none()
+        if device is not None and device.revoked_at is None:
+            return device.user
+
+    raise _credentials_error

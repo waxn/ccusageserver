@@ -3,6 +3,10 @@ import BreakdownTable from "../components/BreakdownTable";
 import StatCard from "../components/StatCard";
 import TrendChart from "../components/TrendChart";
 import { api, type Summary } from "../lib/api";
+import { buildSummary, type DeviceRow } from "../lib/aggregate";
+import { parseCcusageDaily } from "../lib/ccusageParse";
+import { aesDecrypt } from "../lib/crypto";
+import { useCrypto } from "../lib/cryptoContext";
 import { firstOfMonthISO, formatNumber, formatUSD, isoDaysAgo } from "../lib/format";
 
 type RangeKey = "month" | "30d" | "90d" | "all";
@@ -28,24 +32,43 @@ function rangeToStart(range: RangeKey): string | undefined {
 }
 
 export default function Dashboard() {
+  const { key } = useCrypto();
   const [range, setRange] = useState<RangeKey>("month");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!key) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api
-      .summary({ start_date: rangeToStart(range) })
-      .then((s) => !cancelled && setSummary(s))
-      .catch((e) => !cancelled && setError(e.message || "Failed to load summary"))
-      .finally(() => !cancelled && setLoading(false));
+    (async () => {
+      try {
+        // Fetch encrypted blobs + device names, decrypt locally, parse, aggregate.
+        const [blobs, devices] = await Promise.all([api.encryptedBlobs(), api.devices()]);
+        const names = new Map(devices.map((d) => [d.id, d.display_name]));
+        const items: DeviceRow[] = [];
+        for (const b of blobs) {
+          try {
+            const payload = JSON.parse(await aesDecrypt(key, b.nonce, b.ciphertext));
+            for (const row of parseCcusageDaily(payload))
+              items.push({ device_id: b.device_id, row });
+          } catch {
+            /* skip a blob we can't decrypt/parse */
+          }
+        }
+        if (!cancelled) setSummary(buildSummary(items, names, rangeToStart(range)));
+      } catch (e: any) {
+        if (!cancelled) setError(e.message || "Failed to load usage");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [range]);
+  }, [range, key]);
 
   const totals = summary?.totals;
   const rangeLabel = useMemo(

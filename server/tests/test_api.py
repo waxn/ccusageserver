@@ -190,6 +190,53 @@ def test_delete_enrollment_token(client, auth_client):
     assert tid not in ids
 
 
+def test_crypto_setup_params_and_device_access(client, auth_client):
+    params = {
+        "salt": "c2FsdHNhbHRzYWx0",
+        "iterations": 200000,
+        "verifier_nonce": "bm9uY2Vub25jZQ==",
+        "verifier_ct": "Y2lwaGVydGV4dGN0",
+    }
+    # Not configured yet.
+    assert auth_client.get("/api/crypto/params").json()["configured"] is False
+    # Configure once.
+    assert auth_client.post("/api/crypto/setup", json=params).status_code == 201
+    got = auth_client.get("/api/crypto/params").json()
+    assert got["configured"] is True and got["salt"] == params["salt"]
+    # Immutable afterwards.
+    assert auth_client.post("/api/crypto/setup", json=params).status_code == 409
+
+    # A device (agent) can also read the params with its API key.
+    token = auth_client.post("/api/enrollment/create", json={}).json()["token"]
+    api_key = client.post(
+        "/api/devices/enroll", json={"enrollment_token": token, "hostname": "h"}
+    ).json()["api_key"]
+    dev_view = client.get("/api/crypto/params", headers={"Authorization": f"Bearer {api_key}"})
+    assert dev_view.status_code == 200 and dev_view.json()["salt"] == params["salt"]
+
+
+def test_encrypted_blob_roundtrip_and_overwrite(client, auth_client):
+    token = auth_client.post("/api/enrollment/create", json={}).json()["token"]
+    api_key = client.post(
+        "/api/devices/enroll", json={"enrollment_token": token, "hostname": "h"}
+    ).json()["api_key"]
+    dev = {"Authorization": f"Bearer {api_key}"}
+
+    assert client.put(
+        "/api/usage/encrypted", json={"nonce": "aXYxMjM=", "ciphertext": "Y3Qx"}, headers=dev
+    ).status_code == 204
+    blobs = auth_client.get("/api/usage/encrypted").json()
+    assert len(blobs) == 1 and blobs[0]["ciphertext"] == "Y3Qx"
+
+    # Overwrite (idempotent — still one blob for the device).
+    client.put("/api/usage/encrypted", json={"nonce": "aXYyMjM=", "ciphertext": "Y3Qy"}, headers=dev)
+    blobs = auth_client.get("/api/usage/encrypted").json()
+    assert len(blobs) == 1 and blobs[0]["ciphertext"] == "Y3Qy"
+
+    # A device with no key can't read all blobs (needs JWT).
+    assert client.get("/api/usage/encrypted", headers=dev).status_code == 401
+
+
 def test_archive_upload(client, auth_client):
     api_key = _enroll(client, auth_client)
     dev_headers = {"Authorization": f"Bearer {api_key}"}

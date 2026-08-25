@@ -96,12 +96,22 @@ Passwords are hashed with argon2; sessions are standard HS256 JWTs.
 
 ## 3. Enroll a machine (the install one-liner)
 
+0. **First, set an encryption password.** The first time you open the dashboard
+   you'll be asked to choose one. Usage is end-to-end encrypted with it, so every
+   machine's agent needs the *same* password (below). It's separate from your
+   login password and unrecoverable if lost.
+
 1. In the dashboard go to **Settings → Enroll a new device**, optionally give it
-   a label, and click **Generate token**. You'll get a one-liner like:
+   a label, and click **Generate token**. Pass your encryption password to the
+   installer via the environment so the agent can encrypt:
 
    ```sh
-   curl -fsSL https://ledger.example.com/install.sh | sh -s -- <enrollment-token>
+   LEDGER_ENCRYPTION_PASSWORD='your-encryption-password' \
+     curl -fsSL https://ledger.example.com/install.sh | sh -s -- <enrollment-token>
    ```
+
+   (You can also leave it out and add `encryption_password` to the config file
+   afterward — the agent won't upload until it's set.)
 
 2. Run it on the target machine (as the user whose `~/.claude` you want tracked —
    **not** root). The installer will:
@@ -123,36 +133,43 @@ from **Devices** if a machine is lost or wiped.
 > loginctl enable-linger "$USER"
 > ```
 
-### What the agent uploads
+### What the agent uploads (and end-to-end encryption)
 
-On each run (`ledger-agent sync`) it:
+Only the parsed ccusage token counts leave your machines, and they are
+**end-to-end encrypted** — the server stores ciphertext it cannot read.
+
+On each run (`ledger-agent sync`) the agent:
 
 - runs `npx -y ccusage@<pinned> daily --json --by-agent` with `TZ` and
-  `CCUSAGE_TIMEZONE` pinned (so every device buckets days on the same clock) and
-  POSTs the JSON to `/api/usage/report`. `--by-agent` makes ccusage break usage
-  out per tool (Claude / Codex / OpenCode …); the server splits those into
-  separate `source_tool` rows so the dashboard's per-tool breakdown is accurate.
-  ccusage reports the **entire local history** it can find
-  (there's no date limit), so the first sync backfills all usage still on disk;
-  the server upserts idempotently on `(device, tool, model, date)`, so
-  re-sending overlapping ranges on every run never duplicates. (The only history
-  Ledger can't recover is data Claude Code already deleted locally before the
-  agent's first run — hence the raw archive below.)
-- at most once per `archive_interval_hours` (default 24), tars the raw source
-  directory (`~/.claude/projects` for Claude) and POSTs it to
-  `/api/usage/archive`. **This tarball is the real insurance policy** — if the
-  parsing pipeline is ever wrong or ccusage's format changes, the raw data still
-  exists server-side under `/data/archives/<device>/<tool>/` and can be
-  reprocessed.
+  `CCUSAGE_TIMEZONE` pinned (so every device buckets days on the same clock).
+  `--by-agent` breaks usage out per tool (Claude / Codex / OpenCode …). ccusage
+  reports the **entire local history** it can find (no date limit), so the first
+  sync backfills all usage still on disk.
+- derives an AES-256 key from your **encryption password** (PBKDF2-HMAC-SHA256,
+  via Node — already required for ccusage) and encrypts the whole ccusage JSON
+  with AES-256-GCM, then `PUT`s the single ciphertext blob to
+  `/api/usage/encrypted`. One blob per device, overwritten each sync — idempotent
+  by construction. The password and key never reach the server.
+
+The browser derives the same key from your password, fetches every device's
+blob, and **decrypts + parses + aggregates entirely client-side**. The server
+never sees plaintext usage, your password, or the key (zero-knowledge).
+
+> **Raw session transcripts are not uploaded.** The agent has an optional
+> `upload_archives` mode (default **off**) that tars `~/.claude/projects`; that
+> tarball contains full prompts/replies/file contents and is **not** end-to-end
+> encrypted, so leave it off unless you specifically want that insurance copy.
 
 ### Agent config (`~/.config/ledger-agent/config.toml`)
 
 ```toml
 server_url = "https://ledger.example.com"
 api_key = "…"                 # per-device key, obtained at enrollment
-ccusage_version = "17.1.3"    # pinned so all machines report comparably
+ccusage_version = "20.0.20"   # pinned so all machines report comparably
 timezone = "UTC"              # pin this identically across devices
 tools = "claude"              # space-separated: claude, opencode, …
+encryption_password = "…"     # must match the one you set in the dashboard
+upload_archives = false       # keep off: raw transcripts are NOT E2E-encrypted
 archive_interval_hours = 24
 ```
 
@@ -261,10 +278,15 @@ migration run.
 
 ## Security notes
 
+- **Usage data is end-to-end encrypted (zero-knowledge).** The agent encrypts
+  with AES-256-GCM using a key derived (PBKDF2-HMAC-SHA256, 200k iterations) from
+  your encryption password; the browser decrypts with the same key. The server
+  stores only ciphertext plus a non-secret KDF salt + verifier — it never sees
+  the password, the key, or plaintext usage. Lose the password and the data is
+  unrecoverable (that's the point). Standard primitives only, no homegrown crypto.
 - Passwords: **argon2** (`argon2-cffi`). Sessions: **HS256 JWT** (PyJWT).
 - Enrollment tokens and device API keys are high-entropy random secrets stored
   only as SHA-256 digests — the plaintext is shown once and never recoverable.
-- No homegrown crypto anywhere.
 - The server assumes it sits behind a trusted reverse proxy that terminates TLS.
   Don't expose port 8000/8787 directly to the internet.
 - Rotating `LEDGER_SECRET_KEY` invalidates dashboard sessions (users re-login);

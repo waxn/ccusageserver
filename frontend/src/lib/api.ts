@@ -108,6 +108,19 @@ export interface User {
   email: string;
   created_at: string;
 }
+export interface CryptoParams {
+  configured: boolean;
+  salt?: string;
+  iterations?: number;
+  verifier_nonce?: string;
+  verifier_ct?: string;
+}
+export interface EncBlob {
+  device_id: number;
+  nonce: string;
+  ciphertext: string;
+  updated_at: string;
+}
 
 // --- Endpoints -------------------------------------------------------------
 
@@ -153,4 +166,17 @@ export const api = {
     request<EnrollmentToken>(`/api/enrollment/${id}/revoke`, { method: "POST" }),
   deleteEnrollment: (id: number) =>
     request<void>(`/api/enrollment/${id}`, { method: "DELETE" }),
+
+  cryptoParams: () => request<CryptoParams>("/api/crypto/params"),
+  cryptoSetup: (body: {
+    salt: string;
+    iterations: number;
+    verifier_nonce: string;
+    verifier_ct: string;
+  }) =>
+    request<CryptoParams>("/api/crypto/setup", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  encryptedBlobs: () => request<EncBlob[]>("/api/usage/encrypted"),
 };
