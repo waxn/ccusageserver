@@ -8,12 +8,11 @@ users' data never leaves their device path in any query or join.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -105,9 +104,12 @@ def export_all_data(
 
     # --- Usage reports -------------------------------------------------------
     # One row per day/tool/model/device. Everything is user-scoped.
+    from sqlalchemy import text
+
+    # Fetch usage rows and their device_ids in a single query
     usage_query = (
         select(
-            UsageReport.device_id,
+            Device.id.label("device_id"),
             UsageReport.date,
             UsageReport.source_tool,
             UsageReport.model_name,
@@ -128,7 +130,7 @@ def export_all_data(
     usage: list[dict[str, Any]] = []
     for r in usage_rows:
         usage.append({
-            "device_id": r.device_id,
+            "device_id": int(r.device_id),
             "date": r.date,
             "source_tool": r.source_tool,
             "model_name": r.model_name,
@@ -143,11 +145,17 @@ def export_all_data(
 
     # --- Encrypted blobs ------------------------------------------------------
     # One latest blob per device (zero-knowledge: server can't read it).
+    from sqlalchemy import func as sa_func
     blobs_query = (
-        select(EncryptedUsage.device_id, EncryptedUsage.nonce, EncryptedUsage.ciphertext, EncryptedUsage.updated_at)
+        select(
+            Device.id.label("device_id"),
+            EncryptedUsage.nonce,
+            EncryptedUsage.ciphertext,
+            EncryptedUsage.updated_at,
+        )
         .join(Device, Device.id == EncryptedUsage.device_id)
         .where(Device.user_id == account.id)
-        .order_by(EncryptedUsage.device_id)
+        .order_by(Device.id)
     )
 
     blobs_rows = db.execute(blobs_query).all()
@@ -162,7 +170,15 @@ def export_all_data(
 
     # --- Raw archives ---------------------------------------------------------
     archives_query = (
-        select(RawArchive)
+        select(
+            Device.id.label("device_id"),
+            RawArchive.id,
+            RawArchive.source_tool,
+            RawArchive.file_path,
+            RawArchive.sha256,
+            RawArchive.size_bytes,
+            RawArchive.uploaded_at,
+        )
         .join(Device, Device.id == RawArchive.device_id)
         .where(Device.user_id == account.id)
         .order_by(RawArchive.uploaded_at.desc())
@@ -172,11 +188,11 @@ def export_all_data(
     raw_archives: list[dict[str, Any]] = []
     for a in archives_rows:
         raw_archives.append({
-            "id": a.id,
+            "id": int(a.id),
             "device_id": int(a.device_id),
             "source_tool": a.source_tool,
             "file_path": a.file_path,
-            "sha256": a.sha256,
+            "sha256": str(a.sha256) if a.sha256 else None,
             "size_bytes": int(a.size_bytes) if a.size_bytes else 0,
             "uploaded_at": a.uploaded_at.isoformat(),
         })
